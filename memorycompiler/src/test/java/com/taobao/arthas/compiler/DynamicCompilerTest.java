@@ -1,5 +1,9 @@
 package com.taobao.arthas.compiler;
 
+import org.junit.Assert;
+import org.junit.Test;
+import org.slf4j.LoggerFactory;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -8,10 +12,6 @@ import java.io.InputStreamReader;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.Map;
-
-import org.junit.Assert;
-import org.junit.Test;
-import org.slf4j.LoggerFactory;
 
 /**
  *
@@ -28,7 +28,7 @@ public class DynamicCompilerTest {
         URLClassLoader classLoader = new URLClassLoader(new URL[] { file.toURI().toURL() },
                         ClassLoader.getSystemClassLoader().getParent());
 
-        DynamicCompiler dynamicCompiler = new DynamicCompiler(classLoader);
+        DynamicCompiler dynamicCompiler = new DynamicCompiler(classLoader, false);
 
         InputStream logger1Stream = DynamicCompilerTest.class.getClassLoader().getResourceAsStream("TestLogger1.java");
         InputStream logger2Stream = DynamicCompilerTest.class.getClassLoader().getResourceAsStream("TestLogger2.java");
@@ -41,6 +41,27 @@ public class DynamicCompilerTest {
         Assert.assertTrue("TestLogger1", byteCodes.containsKey("com.test.TestLogger1"));
         Assert.assertTrue("TestLogger2", byteCodes.containsKey("com.hello.TestLogger2"));
     }
+
+    @Test
+    public void testAnnotationProcessor() throws IOException {
+        String jarPath = DynamicCompilerTest.class.getProtectionDomain().getCodeSource().getLocation().getFile();
+        File file = new File(jarPath);
+
+        URLClassLoader classLoader = new URLClassLoader(new URL[] { file.toURI().toURL() },
+                ClassLoader.getSystemClassLoader().getParent());
+
+        DynamicCompiler dynamicCompiler = new DynamicCompiler(classLoader, true);
+
+        InputStream userClass = DynamicCompilerTest.class.getClassLoader().getResourceAsStream("testAnnotationProcessor/User.java");
+
+        dynamicCompiler.addSource("arthas.User", toString(userClass));
+
+        Map<String, byte[]> byteCodes = dynamicCompiler.buildByteCodes();
+
+        Assert.assertTrue("TestLogger1", byteCodes.containsKey("com.test.TestLogger1"));
+        Assert.assertTrue("TestLogger2", byteCodes.containsKey("com.hello.TestLogger2"));
+    }
+
 
     /**
      * Get the contents of an <code>InputStream</code> as a String

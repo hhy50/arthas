@@ -48,6 +48,7 @@ public class MemoryCompilerCommand extends AnnotatedCommand {
     private String hashCode;
     private String classLoaderClass;
     private String encoding;
+    private boolean enableProcessor;
 
     private List<String> sourcefiles;
 
@@ -79,6 +80,12 @@ public class MemoryCompilerCommand extends AnnotatedCommand {
     @Description("Sets the destination directory for class files")
     public void setDirectory(String directory) {
         this.directory = directory;
+    }
+
+    @Option(longName = "enableProcessor")
+    @Description("Enable annotation processor")
+    public void setEnableProcessor(boolean enableProcessor) {
+        this.enableProcessor = enableProcessor;
     }
 
     @Override
@@ -117,8 +124,7 @@ public class MemoryCompilerCommand extends AnnotatedCommand {
                 }
             }
 
-            DynamicCompiler dynamicCompiler = new DynamicCompiler(classloader);
-
+            DynamicCompiler dynamicCompiler = new DynamicCompiler(classloader, enableProcessor);
             Charset charset = Charset.defaultCharset();
             if (encoding != null) {
                 charset = Charset.forName(encoding);
