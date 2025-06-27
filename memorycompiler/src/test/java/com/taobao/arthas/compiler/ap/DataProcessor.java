@@ -21,7 +21,11 @@ import javax.tools.Diagnostic;
 import java.util.Set;
 
 import static com.sun.tools.javac.util.List.of;
-import static com.taobao.arthas.compiler.ap.JCUtils.*;
+import static com.taobao.arthas.compiler.StringUtil.firstCharUpper;
+import static com.taobao.arthas.compiler.ap.JCUtils.cloneJCVariableAsParam;
+import static com.taobao.arthas.compiler.ap.JCUtils.createMethod;
+import static com.taobao.arthas.compiler.ap.JCUtils.createReturn;
+import static com.taobao.arthas.compiler.ap.JCUtils.getJClassFields;
 
 @SupportedAnnotationTypes("com.taobao.arthas.compiler.annotation.Data")
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
@@ -91,7 +95,7 @@ public class DataProcessor extends AbstractProcessor {
                 )));
         return createMethod(
                 treeMaker,
-                names.fromString(firstCharUpper(jcVariable.name.toString())),
+                names.fromString("set"+firstCharUpper(jcVariable.name.toString())),
                 treeMaker.TypeIdent(TypeTag.VOID),
                 List.of(cloneJCVariableAsParam(treeMaker, jcVariable)),
                 List.nil(),
@@ -121,13 +125,5 @@ public class DataProcessor extends AbstractProcessor {
                 jcBlock,
                 Flags.PUBLIC
         );
-    }
-
-
-    public static String firstCharUpper(String fieldName) {
-        char[] charArray = fieldName.toCharArray();
-        char ch = charArray[0];
-        charArray[0] = (char) (ch & 0xDF);
-        return new String(charArray);
     }
 }

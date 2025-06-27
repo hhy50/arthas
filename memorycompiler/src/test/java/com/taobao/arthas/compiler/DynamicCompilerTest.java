@@ -9,8 +9,12 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.Paths;
 import java.util.Map;
 
 /**
@@ -42,24 +46,46 @@ public class DynamicCompilerTest {
         Assert.assertTrue("TestLogger2", byteCodes.containsKey("com.hello.TestLogger2"));
     }
 
+    /**
+     *
+     * @throws IOException
+     */
     @Test
-    public void testAnnotationProcessor() throws IOException {
+    public void testAnnotationProcessor() throws IOException, ClassNotFoundException, NoSuchMethodException, InstantiationException, IllegalAccessException, InvocationTargetException {
         String jarPath = DynamicCompilerTest.class.getProtectionDomain().getCodeSource().getLocation().getFile();
         File file = new File(jarPath);
 
-        URLClassLoader classLoader = new URLClassLoader(new URL[] { file.toURI().toURL() },
-                ClassLoader.getSystemClassLoader().getParent());
+        URLClassLoader classLoader = new URLClassLoader(new URL[] { file.toURI().toURL(), Paths.get(file.getPath(), "file").toUri().toURL() },
+                ClassLoader.getSystemClassLoader());
 
         DynamicCompiler dynamicCompiler = new DynamicCompiler(classLoader, true);
-
         InputStream userClass = DynamicCompilerTest.class.getClassLoader().getResourceAsStream("testAnnotationProcessor/User.java");
 
-        dynamicCompiler.addSource("arthas.User", toString(userClass));
+        dynamicCompiler.addSource("arthas.memorycompiler.test.User", toString(userClass));
 
         Map<String, byte[]> byteCodes = dynamicCompiler.buildByteCodes();
+        ApClassLoader apClassLoader = new ApClassLoader(ClassLoader.getSystemClassLoader(), byteCodes);
+        Class<?> clazz = apClassLoader.loadClass("arthas.memorycompiler.test.User");
 
-        Assert.assertTrue("TestLogger1", byteCodes.containsKey("com.test.TestLogger1"));
-        Assert.assertTrue("TestLogger2", byteCodes.containsKey("com.hello.TestLogger2"));
+        Field[] declaredFields = clazz.getDeclaredFields();
+        Assert.assertEquals(declaredFields.length, 2);
+        Assert.assertEquals(clazz.getDeclaredMethods().length, declaredFields.length*2);
+
+        Object obj = clazz.newInstance();
+        for (Field field : declaredFields) {
+            String name = StringUtil.firstCharUpper(field.getName());
+            Method setterMethod = clazz.getDeclaredMethod("set"+name, field.getType());
+            Method getterMethod = clazz.getDeclaredMethod("get"+name);
+
+            Object value = null;
+            if (field.getType() == String.class) {
+                value = field.getName() + "_value";
+            } else if (field.getType() == Integer.class) {
+                value = 10;
+            }
+            setterMethod.invoke(obj, value);
+            Assert.assertEquals(getterMethod.invoke(obj), value);
+        }
     }
 
 
@@ -93,6 +119,24 @@ public class DynamicCompilerTest {
                     // ignore
                 }
             }
+        }
+    }
+
+    static class ApClassLoader extends ClassLoader {
+        private final Map<String, byte[]> namespace;
+
+        ApClassLoader(ClassLoader classLoader, Map<String, byte[]> namespace) {
+            super(classLoader);
+            this.namespace = namespace;
+        }
+
+        @Override
+        protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+            if (namespace.containsKey(name)) {
+                byte[] bytes = namespace.get(name);
+                return defineClass(name, bytes, 0, bytes.length);
+            }
+            return super.loadClass(name, resolve);
         }
     }
 }
