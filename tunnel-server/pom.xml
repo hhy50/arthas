@@ -21,6 +21,13 @@
 
 	<dependencyManagement>
 		<dependencies>
+      <dependency>
+        <groupId>io.netty</groupId>
+        <artifactId>netty-bom</artifactId>
+        <version>${netty-bom.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
 			<dependency>
 				<!-- Import dependency management from Spring Boot -->
 				<groupId>org.springframework.boot</groupId>
@@ -204,6 +211,15 @@
 					</execution>
 				</executions>
 			</plugin>
+
+            <!-- 跳过central publishing https://github.com/spring-projects/spring-boot/issues/46928 -->
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <configuration>
+                    <skipPublishing>true</skipPublishing>
+                </configuration>
+            </plugin>
 		</plugins>
 	</build>
 

@@ -43,6 +43,7 @@ import com.taobao.arthas.common.SocketUtils;
 import com.taobao.arthas.core.advisor.Enhancer;
 import com.taobao.arthas.core.advisor.TransformerManager;
 import com.taobao.arthas.core.command.BuiltinCommandPack;
+import com.taobao.arthas.core.command.CommandExecutorImpl;
 import com.taobao.arthas.core.command.view.ResultViewResolver;
 import com.taobao.arthas.core.config.BinderUtils;
 import com.taobao.arthas.core.config.Configure;
@@ -77,6 +78,9 @@ import com.taobao.arthas.core.util.UserStatUtil;
 import com.taobao.arthas.core.util.affect.EnhancerAffect;
 import com.taobao.arthas.core.util.matcher.WildcardMatcher;
 
+import com.taobao.arthas.core.mcp.ArthasMcpBootstrap;
+import com.taobao.arthas.mcp.server.CommandExecutor;
+import com.taobao.arthas.mcp.server.protocol.server.handler.McpHttpRequestHandler;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.util.concurrent.DefaultThreadFactory;
@@ -124,6 +128,9 @@ public class ArthasBootstrap {
     private HistoryManager historyManager;
 
     private HttpApiHandler httpApiHandler;
+
+    private McpHttpRequestHandler mcpRequestHandler;
+    private ArthasMcpBootstrap arthasMcpBootstrap;
 
     private HttpSessionManager httpSessionManager;
     private SecurityAuthenticator securityAuthenticator;
@@ -462,8 +469,17 @@ public class ArthasBootstrap {
             //http api handler
             httpApiHandler = new HttpApiHandler(historyManager, sessionManager);
 
-            logger().info("as-server listening on network={};telnet={};http={};timeout={};", configure.getIp(),
-                    configure.getTelnetPort(), configure.getHttpPort(), options.getConnectionTimeout());
+            // Mcp Server
+            String mcpEndpoint = configure.getMcpEndpoint();
+            String mcpProtocol = configure.getMcpProtocol();
+            if (mcpEndpoint != null && !mcpEndpoint.trim().isEmpty()) {
+                logger().info("try to start mcp server, endpoint: {}, protocol: {}.", mcpEndpoint, mcpProtocol);
+                CommandExecutor commandExecutor = new CommandExecutorImpl(sessionManager);
+                this.arthasMcpBootstrap = new ArthasMcpBootstrap(commandExecutor, mcpEndpoint, mcpProtocol);
+                this.mcpRequestHandler = this.arthasMcpBootstrap.start().getMcpRequestHandler();
+            }
+            logger().info("as-server listening on network={};telnet={};http={};timeout={};mcp={};mcpProtocol={};", configure.getIp(),
+                    configure.getTelnetPort(), configure.getHttpPort(), options.getConnectionTimeout(), configure.getMcpEndpoint(), configure.getMcpProtocol());
 
             // 异步回报启动次数
             if (configure.getStatUrl() != null) {
@@ -511,6 +527,17 @@ public class ArthasBootstrap {
      * call reset() before destroy()
      */
     public void destroy() {
+        if (this.arthasMcpBootstrap != null) {
+            try {
+                // stop 时需要主动关闭 mcp keep-alive 调度线程，避免 stop 后残留线程导致 ArthasClassLoader 无法回收
+                this.arthasMcpBootstrap.shutdown();
+            } catch (Throwable e) {
+                logger().error("stop mcp server error", e);
+            } finally {
+                this.arthasMcpBootstrap = null;
+                this.mcpRequestHandler = null;
+            }
+        }
         if (shellServer != null) {
             shellServer.close();
             shellServer = null;
@@ -669,6 +696,10 @@ public class ArthasBootstrap {
 
     public HttpApiHandler getHttpApiHandler() {
         return httpApiHandler;
+    }
+
+    public McpHttpRequestHandler getMcpRequestHandler() {
+        return mcpRequestHandler;
     }
 
     public File getOutputPath() {

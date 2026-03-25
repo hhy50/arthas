@@ -53,10 +53,9 @@ Affect(class count:1 , method count:1) cost in 130 ms, listenerId: 1.
 ```
 
 - 命令参数解析
-
   - `-t`
 
-    tt 命令有很多个主参数，`-t` 就是其中之一。这个参数的表明希望记录下类 `*Test` 的 `print` 方法的每次执行情况。
+    tt 命令有很多个主参数，`-t` 就是其中之一。这个参数的表明希望记录下类 `demo.MathGame` 的 `primeFactors` 方法的每次执行情况。
 
   - `-n 3`
 
@@ -67,6 +66,10 @@ Affect(class count:1 , method count:1) cost in 130 ms, listenerId: 1.
   - `-m 1`
 
     通过 `-m` 参数指定 Class 匹配的最大数量，防止匹配到的 Class 数量太多导致 JVM 挂起，默认值是 50。
+
+  - `-c <classloader hash>`
+
+    当同名类被多个 classloader 加载时，可以用 `-c` 指定只增强某个 classloader 加载的类。可以先用 `sc -d className` 查看具体的 classloader hash。
 
 - 表格字段说明
 
@@ -84,7 +87,6 @@ Affect(class count:1 , method count:1) cost in 130 ms, listenerId: 1.
 - 条件表达式
 
   不知道大家是否有在使用过程中遇到以下困惑
-
   - Arthas 似乎很难区分出重载的方法
   - 我只需要观察特定参数，但是 tt 却全部都给我记录了下来
 
@@ -233,7 +235,6 @@ Affect(class count: 1 , method count: 1) cost in 56 ms, listenerId: 1
 高级用法 [获取 spring context 调用 bean 方法](https://github.com/alibaba/arthas/issues/482)
 
 - 需要强调的点
-
   1. **ThreadLocal 信息丢失**
 
      很多框架偷偷的将一些环境变量信息塞到了发起调用线程的 ThreadLocal 中，由于调用线程发生了变化，这些 ThreadLocal 线程信息无法通过 Arthas 保存，所以这些信息将会丢失。

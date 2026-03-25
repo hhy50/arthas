@@ -75,8 +75,13 @@ public class Enhancer implements ClassFileTransformer {
     private final Matcher classNameMatcher;
     private final Matcher classNameExcludeMatcher;
     private final Matcher methodNameMatcher;
+    /**
+     * 指定增强的 classloader hash，如果为空则不限制。
+     */
+    private final String targetClassLoaderHash;
     private final EnhancerAffect affect;
     private Set<Class<?>> matchingClasses = null;
+    private boolean isLazy = false;
     private static final ClassLoader selfClassLoader = Enhancer.class.getClassLoader();
 
     // 被增强的类的缓存
@@ -98,14 +103,37 @@ public class Enhancer implements ClassFileTransformer {
     public Enhancer(AdviceListener listener, boolean isTracing, boolean skipJDKTrace, Matcher classNameMatcher,
             Matcher classNameExcludeMatcher,
             Matcher methodNameMatcher) {
+        this(listener, isTracing, skipJDKTrace, classNameMatcher, classNameExcludeMatcher, methodNameMatcher, false, null);
+    }
+
+    /**
+     * @param adviceId          通知编号
+     * @param isTracing         可跟踪方法调用
+     * @param skipJDKTrace      是否忽略对JDK内部方法的跟踪
+     * @param matchingClasses   匹配中的类
+     * @param methodNameMatcher 方法名匹配
+     * @param affect            影响统计
+     * @param isLazy            是否懒加载模式
+     */
+    public Enhancer(AdviceListener listener, boolean isTracing, boolean skipJDKTrace, Matcher classNameMatcher,
+            Matcher classNameExcludeMatcher,
+            Matcher methodNameMatcher, boolean isLazy) {
+        this(listener, isTracing, skipJDKTrace, classNameMatcher, classNameExcludeMatcher, methodNameMatcher, isLazy, null);
+    }
+
+    public Enhancer(AdviceListener listener, boolean isTracing, boolean skipJDKTrace, Matcher classNameMatcher,
+            Matcher classNameExcludeMatcher,
+            Matcher methodNameMatcher, boolean isLazy, String targetClassLoaderHash) {
         this.listener = listener;
         this.isTracing = isTracing;
         this.skipJDKTrace = skipJDKTrace;
         this.classNameMatcher = classNameMatcher;
         this.classNameExcludeMatcher = classNameExcludeMatcher;
         this.methodNameMatcher = methodNameMatcher;
+        this.targetClassLoaderHash = targetClassLoaderHash;
         this.affect = new EnhancerAffect();
         affect.setListenerId(listener.id());
+        this.isLazy = isLazy;
     }
 
     @Override
@@ -126,7 +154,33 @@ public class Enhancer implements ClassFileTransformer {
             // 这里要再次过滤一次，为啥？因为在transform的过程中，有可能还会再诞生新的类
             // 所以需要将之前需要转换的类集合传递下来，再次进行判断
             if (matchingClasses != null && !matchingClasses.contains(classBeingRedefined)) {
-                return null;
+                // 懒加载模式：当类首次加载时（classBeingRedefined == null），检查类名是否匹配
+                if (isLazy && classBeingRedefined == null && className != null) {
+                    // 将 className 从 internal name 转换为 binary name
+                    String classNameDot = className.replace('/', '.');
+                    if (!classNameMatcher.matching(classNameDot)) {
+                        return null;
+                    }
+                    // 检查是否被排除
+                    if (classNameExcludeMatcher != null && classNameExcludeMatcher.matching(classNameDot)) {
+                        return null;
+                    }
+                    // 检查 classloader 是否匹配（指定了 targetClassLoaderHash 时生效）
+                    if (!isTargetClassLoader(inClassLoader)) {
+                        return null;
+                    }
+                    // 检查是否是 arthas 自身的类
+                    if (inClassLoader != null && isEquals(inClassLoader, selfClassLoader)) {
+                        return null;
+                    }
+                    // 检查是否是 unsafe 类
+                    if (!GlobalOptions.isUnsafe && inClassLoader == null) {
+                        return null;
+                    }
+                    logger.info("Lazy mode: enhancing newly loaded class: {}", classNameDot);
+                } else {
+                    return null;
+                }
             }
 
             //keep origin class reader for bytecode optimizations, avoiding JVM metaspace OOM.
@@ -330,6 +384,9 @@ public class Enhancer implements ClassFileTransformer {
             boolean removeFlag = false;
             if (null == clazz) {
                 removeFlag = true;
+            } else if (!isTargetClassLoader(clazz.getClassLoader())) {
+                filteredClasses.add(new Pair<Class<?>, String>(clazz, "classloader is not matched"));
+                removeFlag = true;
             } else if (isSelf(clazz)) {
                 filteredClasses.add(new Pair<Class<?>, String>(clazz, "class loaded by arthas itself"));
                 removeFlag = true;
@@ -418,10 +475,6 @@ public class Enhancer implements ClassFileTransformer {
                 ? SearchUtils.searchClass(inst, classNameMatcher)
                 : SearchUtils.searchSubClass(inst, SearchUtils.searchClass(inst, classNameMatcher));
 
-        if (matchingClasses.size() > maxNumOfMatchedClass) {
-            affect.setOverLimitMsg("The number of matched classes is " +matchingClasses.size()+ ", greater than the limit value " + maxNumOfMatchedClass + ". Try to change the limit with option '-m <arg>'.");
-            return affect;
-        }
         // 过滤掉无法被增强的类
         List<Pair<Class<?>, String>> filtedList = filter(matchingClasses);
         if (!filtedList.isEmpty()) {
@@ -430,12 +483,24 @@ public class Enhancer implements ClassFileTransformer {
             }
         }
 
+        if (matchingClasses.size() > maxNumOfMatchedClass) {
+            affect.setOverLimitMsg("The number of matched classes is " +matchingClasses.size()+ ", greater than the limit value " + maxNumOfMatchedClass + ". Try to change the limit with option '-m <arg>'.");
+            return affect;
+        }
+
         logger.info("enhance matched classes: {}", matchingClasses);
 
         affect.setTransformer(this);
 
         try {
             ArthasBootstrap.getInstance().getTransformerManager().addTransformer(this, isTracing);
+            
+            // 懒加载模式：同时添加到懒加载 transformer 列表
+            // 这样才能在类首次加载时被增强
+            if (isLazy) {
+                ArthasBootstrap.getInstance().getTransformerManager().addLazyTransformer(this);
+                logger.info("Lazy mode enabled, transformer added to lazy transformer list");
+            }
 
             // 批量增强
             if (GlobalOptions.isBatchReTransform) {
@@ -470,6 +535,16 @@ public class Enhancer implements ClassFileTransformer {
         }
 
         return affect;
+    }
+
+    private boolean isTargetClassLoader(ClassLoader inClassLoader) {
+        if (targetClassLoaderHash == null || targetClassLoaderHash.isEmpty()) {
+            return true;
+        }
+        if (inClassLoader == null) {
+            return false;
+        }
+        return Integer.toHexString(inClassLoader.hashCode()).equalsIgnoreCase(targetClassLoaderHash);
     }
 
     /**

@@ -3,6 +3,8 @@ package com.taobao.arthas.core.command.monitor200;
 import java.lang.instrument.Instrumentation;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 import com.alibaba.arthas.deps.org.slf4j.Logger;
 import com.alibaba.arthas.deps.org.slf4j.LoggerFactory;
@@ -11,6 +13,8 @@ import com.taobao.arthas.core.advisor.AdviceWeaver;
 import com.taobao.arthas.core.advisor.Enhancer;
 import com.taobao.arthas.core.advisor.InvokeTraceable;
 import com.taobao.arthas.core.command.model.EnhancerModel;
+import com.taobao.arthas.core.command.model.EnhancerModelFactory;
+import com.taobao.arthas.core.server.ArthasBootstrap;
 import com.taobao.arthas.core.shell.cli.Completion;
 import com.taobao.arthas.core.shell.cli.CompletionUtils;
 import com.taobao.arthas.core.shell.command.AnnotatedCommand;
@@ -49,10 +53,29 @@ public abstract class EnhancerCommand extends AnnotatedCommand {
 
     protected int maxNumOfMatchedClass;
 
+    protected Long timeout;
+
+    protected boolean lazy = false;
+
+    /**
+     * 指定 classloader hash，只增强该 classloader 加载的类。
+     */
+    protected String hashCode;
+
     @Option(longName = "exclude-class-pattern")
     @Description("exclude class name pattern, use either '.' or '/' as separator")
     public void setExcludeClassPattern(String excludeClassPattern) {
         this.excludeClassPattern = excludeClassPattern;
+    }
+
+    @Option(longName = "classloader")
+    @Description("The hash code of the special class's classLoader")
+    public void setHashCode(String hashCode) {
+        this.hashCode = hashCode;
+    }
+
+    public String getHashCode() {
+        return hashCode;
     }
 
     @Option(longName = "listenerId")
@@ -72,6 +95,26 @@ public abstract class EnhancerCommand extends AnnotatedCommand {
     @Description("The maximum of matched class.")
     public void setMaxNumOfMatchedClass(int maxNumOfMatchedClass) {
         this.maxNumOfMatchedClass = maxNumOfMatchedClass;
+    }
+
+    @Option(longName = "timeout")
+    @Description("Timeout value in seconds for the command to exit automatically.")
+    public void setTimeout(Long timeout) {
+        this.timeout = timeout;
+    }
+
+    public Long getTimeout() {
+        return timeout;
+    }
+
+    @Option(shortName = "L", longName = "lazy", flag = true)
+    @Description("Enable lazy mode to enhance classes when they are loaded. Useful when the class is not loaded yet.")
+    public void setLazy(boolean lazy) {
+        this.lazy = lazy;
+    }
+
+    public boolean isLazy() {
+        return lazy;
     }
 
     /**
@@ -146,7 +189,7 @@ public abstract class EnhancerCommand extends AnnotatedCommand {
         Session session = process.session();
         if (!session.tryLock()) {
             String msg = "someone else is enhancing classes, pls. wait.";
-            process.appendResult(new EnhancerModel(null, false, msg));
+            process.appendResult(EnhancerModelFactory.create(null, false, msg));
             process.end(-1, msg);
             return;
         }
@@ -158,7 +201,7 @@ public abstract class EnhancerCommand extends AnnotatedCommand {
             if (listener == null) {
                 logger.error("advice listener is null");
                 String msg = "advice listener is null, check arthas log";
-                process.appendResult(new EnhancerModel(effect, false, msg));
+                process.appendResult(EnhancerModelFactory.create(effect, false, msg));
                 process.end(-1, msg);
                 return;
             }
@@ -167,14 +210,15 @@ public abstract class EnhancerCommand extends AnnotatedCommand {
                 skipJDKTrace = ((AbstractTraceAdviceListener) listener).getCommand().isSkipJDKTrace();
             }
 
-            Enhancer enhancer = new Enhancer(listener, listener instanceof InvokeTraceable, skipJDKTrace, getClassNameMatcher(), getClassNameExcludeMatcher(), getMethodNameMatcher());
+            Enhancer enhancer = new Enhancer(listener, listener instanceof InvokeTraceable, skipJDKTrace,
+                    getClassNameMatcher(), getClassNameExcludeMatcher(), getMethodNameMatcher(), this.lazy, this.hashCode);
             // 注册通知监听器
             process.register(listener, enhancer);
             effect = enhancer.enhance(inst, this.maxNumOfMatchedClass);
 
             if (effect.getThrowable() != null) {
                 String msg = "error happens when enhancing class: "+effect.getThrowable().getMessage();
-                process.appendResult(new EnhancerModel(effect, false, msg));
+                process.appendResult(EnhancerModelFactory.create(effect, false, msg));
                 process.end(1, msg + ", check arthas log: " + LogUtil.loggingFile());
                 return;
             }
@@ -182,28 +226,37 @@ public abstract class EnhancerCommand extends AnnotatedCommand {
             if (effect.cCnt() == 0 || effect.mCnt() == 0) {
                 // no class effected
                 if (!StringUtils.isEmpty(effect.getOverLimitMsg())) {
-                    process.appendResult(new EnhancerModel(effect, false));
+                    process.appendResult(EnhancerModelFactory.create(effect, false));
                     process.end(-1);
                     return;
                 }
-                // might be method code too large
-                process.appendResult(new EnhancerModel(effect, false, "No class or method is affected"));
+                
+                // 懒加载模式：即使没有匹配的类也不立即结束，等待类加载
+                if (this.lazy) {
+                    String lazyMsg = "Lazy mode is enabled, waiting for class to be loaded. Press Q or Ctrl+C to abort.\n"
+                            + "When the target class is loaded, it will be automatically enhanced.";
+                    process.write(lazyMsg + "\n");
+                } else {
+                    // might be method code too large
+                    process.appendResult(EnhancerModelFactory.create(effect, false, "No class or method is affected"));
 
-                String smCommand = Ansi.ansi().fg(Ansi.Color.GREEN).a("sm CLASS_NAME METHOD_NAME").reset().toString();
-                String optionsCommand = Ansi.ansi().fg(Ansi.Color.GREEN).a("options unsafe true").reset().toString();
-                String javaPackage = Ansi.ansi().fg(Ansi.Color.GREEN).a("java.*").reset().toString();
-                String resetCommand = Ansi.ansi().fg(Ansi.Color.GREEN).a("reset CLASS_NAME").reset().toString();
-                String logStr = Ansi.ansi().fg(Ansi.Color.GREEN).a(LogUtil.loggingFile()).reset().toString();
-                String issueStr = Ansi.ansi().fg(Ansi.Color.GREEN).a("https://github.com/alibaba/arthas/issues/47").reset().toString();
-                String msg = "No class or method is affected, try:\n"
-                        + "1. Execute `" + smCommand + "` to make sure the method you are tracing actually exists (it might be in your parent class).\n"
-                        + "2. Execute `" + optionsCommand + "`, if you want to enhance the classes under the `" + javaPackage + "` package.\n"
-                        + "3. Execute `" + resetCommand + "` and try again, your method body might be too large.\n"
-                        + "4. Match the constructor, use `<init>`, for example: `watch demo.MathGame <init>`\n"
-                        + "5. Check arthas log: " + logStr + "\n"
-                        + "6. Visit " + issueStr + " for more details.";
-                process.end(-1, msg);
-                return;
+                    String smCommand = Ansi.ansi().fg(Ansi.Color.GREEN).a("sm CLASS_NAME METHOD_NAME").reset().toString();
+                    String optionsCommand = Ansi.ansi().fg(Ansi.Color.GREEN).a("options unsafe true").reset().toString();
+                    String javaPackage = Ansi.ansi().fg(Ansi.Color.GREEN).a("java.*").reset().toString();
+                    String resetCommand = Ansi.ansi().fg(Ansi.Color.GREEN).a("reset CLASS_NAME").reset().toString();
+                    String logStr = Ansi.ansi().fg(Ansi.Color.GREEN).a(LogUtil.loggingFile()).reset().toString();
+                    String issueStr = Ansi.ansi().fg(Ansi.Color.GREEN).a("https://github.com/alibaba/arthas/issues/47").reset().toString();
+                    String msg = "No class or method is affected, try:\n"
+                            + "1. Execute `" + smCommand + "` to make sure the method you are tracing actually exists (it might be in your parent class).\n"
+                            + "2. Execute `" + optionsCommand + "`, if you want to enhance the classes under the `" + javaPackage + "` package.\n"
+                            + "3. Execute `" + resetCommand + "` and try again, your method body might be too large.\n"
+                            + "4. Match the constructor, use `<init>`, for example: `watch demo.MathGame <init>`\n"
+                            + "5. Check arthas log: " + logStr + "\n"
+                            + "6. Visit " + issueStr + " for more details.\n"
+                            + "7. If the class is not loaded yet, try to use `--lazy` or `-L` option to enable lazy mode.";
+                    process.end(-1, msg);
+                    return;
+                }
             }
 
             // 这里做个补偿,如果在enhance期间,unLock被调用了,则补偿性放弃
@@ -213,13 +266,16 @@ public abstract class EnhancerCommand extends AnnotatedCommand {
                 }
             }
 
-            process.appendResult(new EnhancerModel(effect, true));
+            process.appendResult(EnhancerModelFactory.create(effect, true));
+
+            // 设置超时任务
+            scheduleTimeoutTask(process);
 
             //异步执行，在AdviceListener中结束
         } catch (Throwable e) {
             String msg = "error happens when enhancing class: "+e.getMessage();
             logger.error(msg, e);
-            process.appendResult(new EnhancerModel(effect, false, msg));
+            process.appendResult(EnhancerModelFactory.create(effect, false, msg));
             process.end(-1, msg);
         } finally {
             if (session.getLock() == lock) {
@@ -235,5 +291,35 @@ public abstract class EnhancerCommand extends AnnotatedCommand {
 
     public String getExcludeClassPattern() {
         return excludeClassPattern;
+    }
+
+    /**
+     * Schedule a timeout task to end the command after the specified timeout.
+     *
+     * @param process the command process
+     */
+    private void scheduleTimeoutTask(final CommandProcess process) {
+        if (timeout == null || timeout <= 0) {
+            return;
+        }
+
+        final ScheduledFuture<?> timeoutFuture = ArthasBootstrap.getInstance().getScheduledExecutorService()
+                .schedule(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (process.isRunning()) {
+                            process.write("Command execution timeout after " + timeout + " seconds.\n");
+                            process.end();
+                        }
+                    }
+                }, timeout, TimeUnit.SECONDS);
+
+        // Cancel the timeout task if the process ends normally
+        process.endHandler(new com.taobao.arthas.core.shell.handlers.Handler<Void>() {
+            @Override
+            public void handle(Void event) {
+                timeoutFuture.cancel(false);
+            }
+        });
     }
 }

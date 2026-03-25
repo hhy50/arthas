@@ -1,13 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
-    <parent>
-        <groupId>org.sonatype.oss</groupId>
-        <artifactId>oss-parent</artifactId>
-        <version>9</version>
-    </parent>
 
     <licenses>
         <license>
@@ -60,10 +54,12 @@
         <module>web-ui</module>
         <module>math-game</module>
         <module>common</module>
+        <module>arthas-model</module>
         <module>spy</module>
         <module>arthas-vmtool</module>
         <module>tunnel-common</module>
         <module>tunnel-client</module>
+        <module>arthas-mcp-server</module>
         <module>core</module>
         <module>agent</module>
         <module>client</module>
@@ -75,16 +71,18 @@
         <module>testcase</module>
         <module>site</module>
         <module>packaging</module>
-        <module>labs/arthas-grpc-web-proxy</module>
+        <!-- <module>labs/arthas-grpc-web-proxy</module>
         <module>labs/cluster-management/native-agent</module>
         <module>labs/cluster-management/native-agent-management-web</module>
         <module>labs/cluster-management/native-agent-proxy</module>
-        <module>labs/cluster-management/native-agent-common</module>
+        <module>labs/cluster-management/native-agent-common</module> -->
         <module>labs/arthas-grpc-server</module>
+        <!-- <module>labs/arthas-jfr-frontend</module> -->
+<!--        <module>labs/arthas-jfr-backend</module>-->
     </modules>
 
     <properties>
-        <revision>4.0.5</revision>
+        <revision>4.1.8</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.target>1.8</maven.compiler.target>
         <maven.compiler.source>1.8</maven.compiler.source>
@@ -93,7 +91,7 @@
         <maven-invoker-plugin.version>3.0.0</maven-invoker-plugin.version>
         <project.build.outputTimestamp>2020-09-27T15:10:43Z</project.build.outputTimestamp>
         <lifecycle-mapping.version>1.0.0</lifecycle-mapping.version>
-        <netty.version>4.1.119.Final</netty.version>
+        <netty-bom.version>4.1.130.Final</netty-bom.version>
     </properties>
 
     <dependencyManagement>
@@ -101,7 +99,7 @@
             <dependency>
                 <groupId>com.alibaba</groupId>
                 <artifactId>bytekit-core</artifactId>
-                <version>0.1.4</version>
+                <version>0.1.6</version>
             </dependency>
             <dependency>
                 <groupId>org.benf</groupId>
@@ -111,7 +109,7 @@
             <dependency>
                 <groupId>com.alibaba.middleware</groupId>
                 <artifactId>termd-core</artifactId>
-                <version>1.1.7.14</version>
+                <version>1.1.7.15</version>
             </dependency>
             <dependency>
                 <groupId>com.alibaba.middleware</groupId>
@@ -136,17 +134,17 @@
             <dependency>
                 <groupId>com.alibaba.arthas</groupId>
                 <artifactId>arthas-repackage-logger</artifactId>
-                <version>0.0.17</version>
+                <version>0.0.20</version>
             </dependency>
             <dependency>
                 <groupId>com.alibaba</groupId>
                 <artifactId>repackage-asm</artifactId>
-                <version>0.0.17</version>
+                <version>0.0.20</version>
             </dependency>
             <dependency>
                 <groupId>com.alibaba.fastjson2</groupId>
                 <artifactId>fastjson2</artifactId>
-                <version>2.0.52</version>
+                <version>2.0.58</version>
             </dependency>
             <dependency>
                 <groupId>com.taobao.text</groupId>
@@ -184,29 +182,11 @@
             </dependency>
 
             <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-common</artifactId>
-                <version>${netty.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-buffer</artifactId>
-                <version>${netty.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-handler</artifactId>
-                <version>${netty.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-transport</artifactId>
-                <version>${netty.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-codec-http</artifactId>
-                <version>${netty.version}</version>
+              <groupId>io.netty</groupId>
+              <artifactId>netty-bom</artifactId>
+              <version>${netty-bom.version}</version>
+              <type>pom</type>
+              <scope>import</scope>
             </dependency>
 
             <dependency>
@@ -218,19 +198,25 @@
             <dependency>
                 <groupId>net.bytebuddy</groupId>
                 <artifactId>byte-buddy</artifactId>
-                <version>1.14.11</version>
+                <version>1.18.3</version>
             </dependency>
 
             <dependency>
                 <groupId>net.bytebuddy</groupId>
                 <artifactId>byte-buddy-agent</artifactId>
-                <version>1.14.11</version>
+                <version>1.18.3</version>
             </dependency>
 
             <dependency>
                 <groupId>org.zeroturnaround</groupId>
                 <artifactId>zt-zip</artifactId>
                 <version>1.16</version>
+            </dependency>
+
+            <dependency>
+                <groupId>io.modelcontextprotocol.sdk</groupId>
+                <artifactId>mcp</artifactId>
+                <version>0.17.0</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -254,6 +240,16 @@
                     <systemPath>${JAVA8_HOME}/lib/tools.jar</systemPath>
                 </dependency>
             </dependencies>
+        </profile>
+
+        <profile>
+            <id>jdk17</id>
+            <activation>
+                <jdk>[17,)</jdk>
+            </activation>
+            <modules>
+                <module>arthas-mcp-integration-test</module>
+            </modules>
         </profile>
 
         <profile>
@@ -339,6 +335,15 @@
                             </execution>
                         </executions>
                     </plugin>
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>0.9.0</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <publishingServerId>central</publishingServerId>
+                        </configuration>
+                    </plugin>
                 </plugins>
             </build>
         </profile>
@@ -351,6 +356,12 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
                     <version>3.8.0</version>
+                    <configuration>
+                        <source>8</source>
+                        <target>8</target>
+                        <encoding>UTF-8</encoding>
+                        <parameters>true</parameters>
+                    </configuration>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>

@@ -27,6 +27,8 @@ Please refer to [README.MD at killercoda branch](https://github.com/alibaba/arth
 
 Recommend to use [`as-package.sh`](as-package.sh) to package, which will auto-install the latest Arthas to local `~/.arthas` and when debugging, Arthas will auto-load the latest version.
 
+Tip: for faster local iteration, you can use `./as-package.sh --fast` (skip `clean` and skip documentation front-end build in `site` module). If you need to rebuild docs, run without `--fast` or use `./mvnw clean package -DskipTests -P full`.
+
 * To support jni, cpp compiling environment support is required
 * mac needs to install xcode
 * windows need to install gcc
@@ -92,6 +94,8 @@ Tip: you can use `--versions` to list all available versions.
 
 本地开发时，推荐执行`as-package.sh`来打包，会自动安装最新版本的arthas到`~/.arthas`目录里。debug时会自动使用最新版本。
 
+提示：本地快速迭代可以执行 `./as-package.sh --fast`（跳过 `clean`，并跳过 `site` 模块的文档前端构建）。如果需要重建文档，请不要使用 `--fast`，或者执行 `./mvnw clean package -DskipTests -P full`。
+
 * 代码里要编译jni，需要cpp编译环境支持
 * mac需要安装xcode
 * windows需要安装gcc
@@ -138,7 +142,7 @@ Tip: you can use `--versions` to list all available versions.
 * 执行一次 gpg --sign /tmp/2.txt ，让 gpg 后台进程启动，否则打包可能失败
 * mvn clean deploy -DskipTests -P full -P release
 
-* 到 https://oss.sonatype.org/ 上，“Staging Repositories”然后close掉自己的，再release
+* 到 https://central.sonatype.com/publishing/deployments ，Publish 自己的 Deployment
 * 发布后，可以到这里查看是否同步到仓库里了： https://repo1.maven.org/maven2/com/taobao/arthas/arthas-packaging/
 * 发布完maven仓库之后，需要到阿里云的仓库里检查是否同步，有可能有延时
 
